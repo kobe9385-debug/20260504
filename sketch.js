@@ -58,14 +58,12 @@ function setup() {
       },
       audio: false,
     },
-    () => {
+    (stream) => {
       console.log("Camera stream started.");
+      video.size(640, 480);
       startModels();
     }
   );
-
-  // 限制視訊解析度以提升手機執行效能
-  video.size(640, 480);
   video.hide();
 }
 
@@ -139,8 +137,8 @@ function drawStatus(message) {
 }
 
 function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
+  if (!facePrediction || !facePrediction.scaledMesh) return;
   const keypoints = facePrediction.scaledMesh;
-  const clr = faceColors[faceIndex % faceColors.length];
 
   // --- 繪製耳環邏輯 ---
   if (currentFingerCount >= 1 && currentFingerCount <= 5) {
@@ -148,7 +146,7 @@ function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
     const eSize = 50; // 耳環大小
     
     const drawEarring = (index) => {
-      const p = keypoints[index];
+      const p = keypoints && keypoints[index];
       if (p) {
         const [x, y] = scalePoint(p);
         // 考慮鏡像繪製在耳垂位置
@@ -203,13 +201,13 @@ function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
 }
 
 function countFingers(hands) {
-  if (hands.length === 0 || !hands[0].landmarks) return 0;
+  if (!hands || hands.length === 0 || !hands[0].landmarks) return 0;
   
   let count = 0;
   const lm = hands[0].landmarks;
+  if (lm.length < 21) return 0; // 確保點位資料完整
 
   // 手指尖端與關節索引
-  // 食指(8,6), 中指(12,10), 無名指(16,14), 小指(20,18)
   const tips = [8, 12, 16, 20];
   const joints = [6, 10, 14, 18];
 
@@ -240,10 +238,4 @@ function scalePoint(point) {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-
-  if (!video) {
-    return;
-  }
-
-  video.size(windowWidth * 0.8, windowHeight * 0.8);
 }
