@@ -5,11 +5,13 @@ let handpose;
 let predictions = [];
 let handPredictions = [];
 let maskImgs = [];
+let earringImgs = [];
 
 let faceModelLoaded = false;
 let handModelLoaded = false;
 
 let currentMaskIndex = 0;
+let currentFingerCount = 0;
 let maskCycleCounter = 0;
 
 const MAX_FACES = 2;
@@ -40,6 +42,9 @@ function preload() {
   for (let i = 1; i <= 6; i++) {
     maskImgs.push(loadImage(`0${i}.png`));
   }
+  for (let i = 1; i <= 5; i++) {
+    earringImgs.push(loadImage(`${i}.png`));
+  }
 }
 
 function setup() {
@@ -59,7 +64,8 @@ function setup() {
     }
   );
 
-  video.size(windowWidth * 0.8, windowHeight * 0.8);
+  // 限制視訊解析度以提升手機執行效能
+  video.size(640, 480);
   video.hide();
 }
 
@@ -83,6 +89,7 @@ function startModels() {
   });
   handpose.on("predict", (results) => {
     handPredictions = results;
+    currentFingerCount = countFingers(handPredictions);
   });
 }
 
@@ -135,32 +142,30 @@ function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
   const keypoints = facePrediction.scaledMesh;
   const clr = faceColors[faceIndex % faceColors.length];
 
-  const drawLandmarkLines = (sequence) => {
-    stroke(clr[0], clr[1], clr[2]);
-    strokeWeight(1.5);
-    noFill();
-    beginShape();
-
-    for (let j = 0; j < sequence.length; j += 1) {
-      const index = sequence[j];
-      const point = keypoints[index];
-
-      if (!point) {
-        continue;
+  // --- 繪製耳環邏輯 ---
+  if (currentFingerCount >= 1 && currentFingerCount <= 5) {
+    const earringImg = earringImgs[currentFingerCount - 1];
+    const eSize = 50; // 耳環大小
+    
+    const drawEarring = (index) => {
+      const p = keypoints[index];
+      if (p) {
+        const [x, y] = scalePoint(p);
+        // 考慮鏡像繪製在耳垂位置
+        image(earringImg, videoCanvasX + video.width - x - eSize/2, videoCanvasY + y, eSize, eSize * 1.5);
       }
+    };
 
-      const [x, y] = scalePoint(point);
-      vertex(videoCanvasX + video.width - x, videoCanvasY + y);
-    }
+    drawEarring(RIGHT_EARLOBE_INDEX);
+    drawEarring(LEFT_EARLOBE_INDEX);
+  }
 
-    endShape(CLOSE);
-  };
+  // --- 繪製臉譜邏輯 ---
 
   // 如果偵測到手（揮手狀態）
   if (handPredictions.length > 0) {
-    // 1. 更新臉譜切換邏輯 (每 10 幀切換一次圖片)
     maskCycleCounter++;
-    if (maskCycleCounter > 10) {
+    if (maskCycleCounter > 5) { // 縮短切換幀數，讓變臉更靈敏
       currentMaskIndex = (currentMaskIndex + 1) % 6;
       maskCycleCounter = 0;
     }
@@ -195,6 +200,33 @@ function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
       pop();
     }
   }
+}
+
+function countFingers(hands) {
+  if (hands.length === 0 || !hands[0].landmarks) return 0;
+  
+  let count = 0;
+  const lm = hands[0].landmarks;
+
+  // 手指尖端與關節索引
+  // 食指(8,6), 中指(12,10), 無名指(16,14), 小指(20,18)
+  const tips = [8, 12, 16, 20];
+  const joints = [6, 10, 14, 18];
+
+  for (let i = 0; i < 4; i++) {
+    if (lm[tips[i]][1] < lm[joints[i]][1]) {
+      count++;
+    }
+  }
+
+  // 大拇指辨識 (根據 X 軸水平距離判斷是否張開)
+  const thumbTip = lm[4];
+  const thumbBase = lm[2];
+  if (Math.abs(thumbTip[0] - lm[0][0]) > Math.abs(thumbBase[0] - lm[0][0])) {
+    count++;
+  }
+
+  return count;
 }
 
 function scalePoint(point) {
