@@ -22,6 +22,9 @@ const leftEyeSequence2 = [133, 173, 157, 158, 159, 160, 161, 246, 33, 7, 163, 14
 const rightEyeSequence1 = [359, 467, 260, 259, 257, 258, 286, 414, 463, 341, 256, 252, 253, 254, 339, 255];
 const rightEyeSequence2 = [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249];
 
+const RIGHT_EARLOBE_INDEX = 147;
+const LEFT_EARLOBE_INDEX = 376;
+
 const faceColors = [
   [255, 0, 0],
   [0, 255, 0],
@@ -345,6 +348,24 @@ function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
   drawLandmarkLines(leftEyeSequence2);
   drawLandmarkLines(rightEyeSequence1);
   drawLandmarkLines(rightEyeSequence2);
+
+  // 繪製耳垂上的黃色圓圈
+  fill(255, 255, 0); // 黃色
+  noStroke();
+
+  // 取得右耳垂座標 (考慮鏡像)
+  const rightEarlobe = keypoints[RIGHT_EARLOBE_INDEX];
+  if (rightEarlobe) {
+    const [x, y] = scalePoint(rightEarlobe);
+    ellipse(videoCanvasX + video.width - x, videoCanvasY + y, 15, 15);
+  }
+
+  // 取得左耳垂座標 (考慮鏡像)
+  const leftEarlobe = keypoints[LEFT_EARLOBE_INDEX];
+  if (leftEarlobe) {
+    const [x, y] = scalePoint(leftEarlobe);
+    ellipse(videoCanvasX + video.width - x, videoCanvasY + y, 15, 15);
+  }
 }
 
 function getFaceBounds(facePrediction) {
