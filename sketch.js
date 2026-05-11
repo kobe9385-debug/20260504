@@ -12,7 +12,9 @@ let handModelLoaded = false;
 
 let currentMaskIndex = 0;
 let currentFingerCount = 0;
-let maskCycleCounter = 0;
+
+let handWasOverFace = false; // 用於偵測揮手切換的狀態
+let vScale = 1; // 全域縮放比例
 
 const MAX_FACES = 2;
 
@@ -57,14 +59,13 @@ function setup() {
         facingMode: "user",
       },
       audio: false,
-    },
-    (stream) => {
-      console.log("Camera stream started.");
-      video.size(640, 480);
-      startModels();
     }
   );
+  video.size(640, 480);
+  video.elt.setAttribute('playsinline', ''); // 行動裝置必備
+  video.elt.play(); 
   video.hide();
+  startModels();
 }
 
 function startModels() {
@@ -73,7 +74,7 @@ function startModels() {
     detectionConfidence: 0.5,
   };
 
-  facemesh = ml5.facemesh(video, faceOptions, () => {
+  facemesh = ml5.facemesh(video.elt, faceOptions, () => {
     console.log("FaceMesh model ready.");
     faceModelLoaded = true;
   });
@@ -81,7 +82,7 @@ function startModels() {
     predictions = results;
   });
 
-  handpose = ml5.handpose(video, () => {
+  handpose = ml5.handpose(video.elt, () => {
     console.log("Handpose model ready.");
     handModelLoaded = true;
   });
@@ -99,13 +100,20 @@ function draw() {
     return;
   }
 
-  const videoX = (width - video.width) / 2;
-  const videoY = (height - video.height) / 2;
+  // 計算縮放比例以填滿螢幕且不變形 (按高度適配)
+  vScale = height / video.height;
+  const vW = video.width * vScale;
+  const vH = height;
+  const vX = (width - vW) / 2;
+  const vY = 0;
 
-  drawMirroredVideo(videoX, videoY);
+  drawMirroredVideo(vX, vY, vW, vH);
 
   if (!faceModelLoaded || !handModelLoaded) {
-    drawStatus("Loading AI models...");
+    let msg = "Loading AI models...";
+    if (faceModelLoaded && !handModelLoaded) msg = "Loading Hand Model...";
+    if (!faceModelLoaded && handModelLoaded) msg = "Loading Face Model...";
+    drawStatus(msg);
     return;
   }
 
@@ -114,15 +122,15 @@ function draw() {
     if (!facePrediction) {
       continue;
     }
-    drawKeypoints(facePrediction, i, videoX, videoY);
+    drawKeypoints(facePrediction, i, vX, vY, vW, vH);
   }
 }
 
-function drawMirroredVideo(videoX, videoY) {
+function drawMirroredVideo(x, y, w, h) {
   push();
-  translate(videoX + video.width, videoY);
+  translate(x + w, y);
   scale(-1, 1);
-  image(video, 0, 0, video.width, video.height);
+  image(video, 0, 0, w, h);
   pop();
 }
 
@@ -136,21 +144,21 @@ function drawStatus(message) {
   pop();
 }
 
-function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
+function drawKeypoints(facePrediction, faceIndex, vX, vY, vW, vH) {
   if (!facePrediction || !facePrediction.scaledMesh) return;
   const keypoints = facePrediction.scaledMesh;
+  const faceBox = facePrediction.boundingBox; // [x, y, w, h]
 
   // --- 繪製耳環邏輯 ---
   if (currentFingerCount >= 1 && currentFingerCount <= 5) {
     const earringImg = earringImgs[currentFingerCount - 1];
-    const eSize = 50; // 耳環大小
+    const eSize = 50 * vScale; // 隨畫面縮放
     
     const drawEarring = (index) => {
       const p = keypoints && keypoints[index];
       if (p) {
-        const [x, y] = scalePoint(p);
-        // 考慮鏡像繪製在耳垂位置
-        image(earringImg, videoCanvasX + video.width - x - eSize/2, videoCanvasY + y, eSize, eSize * 1.5);
+        const cp = getCanvasPoint(p, vX, vY, vW);
+        image(earringImg, cp.x - eSize/2, cp.y, eSize, eSize * 1.5);
       }
     };
 
@@ -159,41 +167,49 @@ function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
   }
 
   // --- 繪製臉譜邏輯 ---
-
-  // 如果偵測到手（揮手狀態）
+  
+  // 偵測手是否經過臉部
+  let handIsOverFace = false;
   if (handPredictions.length > 0) {
-    maskCycleCounter++;
-    if (maskCycleCounter > 5) { // 縮短切換幀數，讓變臉更靈敏
-      currentMaskIndex = (currentMaskIndex + 1) % 6;
-      maskCycleCounter = 0;
+    const handWrist = handPredictions[0].landmarks[0]; // 拿手腕點當中心
+    const hX = handWrist[0];
+    const hY = handWrist[1];
+    
+    // 檢查手腕座標是否在臉部 Bounding Box 內 (使用原始影像座標比對)
+    if (hX > faceBox.topLeft[0][0] && hX < faceBox.bottomRight[0][0] &&
+        hY > faceBox.topLeft[0][1] && hY < faceBox.bottomRight[0][1]) {
+      handIsOverFace = true;
     }
+  }
 
-    // 2. 計算臉部邊界以決定臉譜位置與大小
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
+  // 只有在手「進入」臉部區域的那一幀切換
+  if (handIsOverFace && !handWasOverFace) {
+    currentMaskIndex = (currentMaskIndex + 1) % maskImgs.length;
+  }
+  handWasOverFace = handIsOverFace;
 
-    for (let i = 0; i < keypoints.length; i++) {
-      const [px, py] = scalePoint(keypoints[i]);
-      if (px < minX) minX = px;
-      if (px > maxX) maxX = px;
-      if (py < minY) minY = py;
-      if (py > maxY) maxY = py;
-    }
+  // 如果手正在臉部上方，顯示臉譜
+  if (handIsOverFace || handPredictions.length > 0) {
+    const pTop = getCanvasPoint(keypoints[10], vX, vY, vW);
+    const pBottom = getCanvasPoint(keypoints[152], vX, vY, vW);
+    const pLeft = getCanvasPoint(keypoints[234], vX, vY, vW);
+    const pRight = getCanvasPoint(keypoints[454], vX, vY, vW);
+
+    const minX = Math.min(pLeft.x, pRight.x);
+    const maxX = Math.max(pLeft.x, pRight.x);
+    const minY = pTop.y;
+    const maxY = pBottom.y;
 
     // 3. 繪製臉譜圖片
     const maskImg = maskImgs[currentMaskIndex];
     if (maskImg) {
-      const padding = 20; // 稍微擴大臉譜覆蓋範圍
+      const padding = 20 * vScale;
       const faceW = (maxX - minX) + padding * 2;
       const faceH = (maxY - minY) + padding * 2;
       
       push();
-      // 因為鏡像關係，X 座標計算需要調整
-      const drawX = videoCanvasX + video.width - maxX - padding;
-      const drawY = videoCanvasY + minY - padding;
-      
+      const drawX = minX - padding;
+      const drawY = minY - padding;
       image(maskImg, drawX, drawY, faceW, faceH);
       pop();
     }
@@ -227,13 +243,16 @@ function countFingers(hands) {
   return count;
 }
 
-function scalePoint(point) {
+function getCanvasPoint(point, vX, vY, vW) {
   const intrinsicVideoWidth = video.elt.videoWidth || video.width;
   const intrinsicVideoHeight = video.elt.videoHeight || video.height;
-  const scaleX = video.width / intrinsicVideoWidth;
-  const scaleY = video.height / intrinsicVideoHeight;
+  
+  // 1. 正規化並鏡像 X 軸
+  let normX = point[0] / intrinsicVideoWidth;
+  let cpX = vX + (1 - normX) * vW;
+  let cpY = vY + (point[1] / intrinsicVideoHeight) * (video.height * vScale);
 
-  return [point[0] * scaleX, point[1] * scaleY];
+  return { x: cpX, y: cpY };
 }
 
 function windowResized() {
