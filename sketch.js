@@ -162,23 +162,64 @@ function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
   drawLandmarkLines(rightEyeSequence1);
   drawLandmarkLines(rightEyeSequence2);
 
-  // 繪製耳垂上的黃色圓圈
-  fill(255, 255, 0); // 黃色
-  noStroke();
+  // 檢查手指數量並顯示對應耳環圖片
+  if (currentFingerCount >= 1 && currentFingerCount <= 5) {
+    const img = fingerImgs[currentFingerCount - 1];
+    const imgW = 40; // 圖片寬度
+    const imgH = 80; // 圖片高度 (耳環通常較長)
 
-  // 取得右耳垂座標 (考慮鏡像)
+    // 繪製右耳環 (考慮鏡像)
+    const rightEarlobe = keypoints[RIGHT_EAR_INDEX]; 
+    const rE = keypoints[RIGHT_EARLOBE_INDEX];
+    if (rE) {
+      const [x, y] = scalePoint(rE);
+      image(img, videoCanvasX + video.width - x - imgW / 2, videoCanvasY + y, imgW, imgH);
+    }
+
+    // 繪製左耳環 (考慮鏡像)
+    const lE = keypoints[LEFT_EARLOBE_INDEX];
+    if (lE) {
+      const [x, y] = scalePoint(lE);
+      image(img, videoCanvasX + video.width - x - imgW / 2, videoCanvasY + y, imgW, imgH);
+    }
+  } else {
+    // 若手指數量不在 1-5 之間，維持黃色圓圈標示
+    fill(255, 255, 0);
+    noStroke();
   const rightEarlobe = keypoints[RIGHT_EARLOBE_INDEX];
   if (rightEarlobe) {
     const [x, y] = scalePoint(rightEarlobe);
     ellipse(videoCanvasX + video.width - x, videoCanvasY + y, 15, 15);
   }
-
-  // 取得左耳垂座標 (考慮鏡像)
   const leftEarlobe = keypoints[LEFT_EARLOBE_INDEX];
   if (leftEarlobe) {
     const [x, y] = scalePoint(leftEarlobe);
     ellipse(videoCanvasX + video.width - x, videoCanvasY + y, 15, 15);
   }
+  }
+}
+
+function countFingers(hands) {
+  if (hands.length === 0) return 0;
+
+  let count = 0;
+  const landmarks = hands[0].landmarks;
+
+  // 手指尖端索引：食指(8), 中指(12), 無名指(16), 小指(20)
+  const fingerTips = [8, 12, 16, 20];
+  for (let tip of fingerTips) {
+    // 如果指尖的 Y 座標低於第二關節，代表手指伸直
+    if (landmarks[tip][1] < landmarks[tip - 2][1]) {
+      count++;
+    }
+  }
+
+  // 大拇指(4) 判斷 X 軸與掌心(0) 的相對距離
+  if (Math.abs(landmarks[4][0] - landmarks[0][0]) > Math.abs(landmarks[3][0] - landmarks[0][0])) {
+    count++;
+  }
+
+  return count;
 }
 
 function scalePoint(point) {
