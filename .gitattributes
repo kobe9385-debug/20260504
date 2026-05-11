@@ -1,0 +1,4 @@
+# Set default behavior to handle all files as text and normalize line endings.
+* text=auto
+
+*.js text eol=lf
