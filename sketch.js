@@ -4,11 +4,13 @@ let handpose;
 
 let predictions = [];
 let handPredictions = [];
-let fingerImgs = [];
+let maskImgs = [];
 
 let faceModelLoaded = false;
 let handModelLoaded = false;
-let currentFingerCount = 0;
+
+let currentMaskIndex = 0;
+let maskCycleCounter = 0;
 
 const MAX_FACES = 2;
 
@@ -35,8 +37,8 @@ const faceColors = [
 ];
 
 function preload() {
-  for (let i = 1; i <= 5; i++) {
-    fingerImgs.push(loadImage(`${i}.png`));
+  for (let i = 1; i <= 6; i++) {
+    maskImgs.push(loadImage(`0${i}.png`));
   }
 }
 
@@ -81,7 +83,6 @@ function startModels() {
   });
   handpose.on("predict", (results) => {
     handPredictions = results;
-    currentFingerCount = countFingers(handPredictions);
   });
 }
 
@@ -155,71 +156,45 @@ function drawKeypoints(facePrediction, faceIndex, videoCanvasX, videoCanvasY) {
     endShape(CLOSE);
   };
 
-  drawLandmarkLines(landmarkSequence1);
-  drawLandmarkLines(landmarkSequence2);
-  drawLandmarkLines(leftEyeSequence1);
-  drawLandmarkLines(leftEyeSequence2);
-  drawLandmarkLines(rightEyeSequence1);
-  drawLandmarkLines(rightEyeSequence2);
-
-  // 檢查手指數量並顯示對應耳環圖片
-  if (currentFingerCount >= 1 && currentFingerCount <= 5) {
-    const img = fingerImgs[currentFingerCount - 1];
-    const imgW = 40; // 圖片寬度
-    const imgH = 80; // 圖片高度 (耳環通常較長)
-
-    // 繪製右耳環 (考慮鏡像)
-    const rightEarlobe = keypoints[RIGHT_EAR_INDEX]; 
-    const rE = keypoints[RIGHT_EARLOBE_INDEX];
-    if (rE) {
-      const [x, y] = scalePoint(rE);
-      image(img, videoCanvasX + video.width - x - imgW / 2, videoCanvasY + y, imgW, imgH);
+  // 如果偵測到手（揮手狀態）
+  if (handPredictions.length > 0) {
+    // 1. 更新臉譜切換邏輯 (每 10 幀切換一次圖片)
+    maskCycleCounter++;
+    if (maskCycleCounter > 10) {
+      currentMaskIndex = (currentMaskIndex + 1) % 6;
+      maskCycleCounter = 0;
     }
 
-    // 繪製左耳環 (考慮鏡像)
-    const lE = keypoints[LEFT_EARLOBE_INDEX];
-    if (lE) {
-      const [x, y] = scalePoint(lE);
-      image(img, videoCanvasX + video.width - x - imgW / 2, videoCanvasY + y, imgW, imgH);
+    // 2. 計算臉部邊界以決定臉譜位置與大小
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (let i = 0; i < keypoints.length; i++) {
+      const [px, py] = scalePoint(keypoints[i]);
+      if (px < minX) minX = px;
+      if (px > maxX) maxX = px;
+      if (py < minY) minY = py;
+      if (py > maxY) maxY = py;
     }
-  } else {
-    // 若手指數量不在 1-5 之間，維持黃色圓圈標示
-    fill(255, 255, 0);
-    noStroke();
-  const rightEarlobe = keypoints[RIGHT_EARLOBE_INDEX];
-  if (rightEarlobe) {
-    const [x, y] = scalePoint(rightEarlobe);
-    ellipse(videoCanvasX + video.width - x, videoCanvasY + y, 15, 15);
-  }
-  const leftEarlobe = keypoints[LEFT_EARLOBE_INDEX];
-  if (leftEarlobe) {
-    const [x, y] = scalePoint(leftEarlobe);
-    ellipse(videoCanvasX + video.width - x, videoCanvasY + y, 15, 15);
-  }
-  }
-}
 
-function countFingers(hands) {
-  if (hands.length === 0) return 0;
-
-  let count = 0;
-  const landmarks = hands[0].landmarks;
-
-  // 手指尖端索引：食指(8), 中指(12), 無名指(16), 小指(20)
-  const fingerTips = [8, 12, 16, 20];
-  for (let tip of fingerTips) {
-    // 如果指尖的 Y 座標低於第二關節，代表手指伸直
-    if (landmarks[tip][1] < landmarks[tip - 2][1]) {
-      count++;
+    // 3. 繪製臉譜圖片
+    const maskImg = maskImgs[currentMaskIndex];
+    if (maskImg) {
+      const padding = 20; // 稍微擴大臉譜覆蓋範圍
+      const faceW = (maxX - minX) + padding * 2;
+      const faceH = (maxY - minY) + padding * 2;
+      
+      push();
+      // 因為鏡像關係，X 座標計算需要調整
+      const drawX = videoCanvasX + video.width - maxX - padding;
+      const drawY = videoCanvasY + minY - padding;
+      
+      image(maskImg, drawX, drawY, faceW, faceH);
+      pop();
     }
   }
-
-  // 大拇指(4) 判斷 X 軸與掌心(0) 的相對距離
-  if (Math.abs(landmarks[4][0] - landmarks[0][0]) > Math.abs(landmarks[3][0] - landmarks[0][0])) {
-    count++;
-  }
-
-  return count;
 }
 
 function scalePoint(point) {
