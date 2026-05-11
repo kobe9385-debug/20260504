@@ -100,12 +100,14 @@ function draw() {
     return;
   }
 
-  // 計算縮放比例以填滿螢幕且不變形 (按高度適配)
-  vScale = height / video.height;
+  // 計算縮放比例以適應視窗的 80% 並維持比例不壓扁
+  let scaleW = (windowWidth * 0.8) / video.width;
+  let scaleH = (windowHeight * 0.8) / video.height;
+  vScale = min(scaleW, scaleH);
   const vW = video.width * vScale;
-  const vH = height;
+  const vH = video.height * vScale;
   const vX = (width - vW) / 2;
-  const vY = 0;
+  const vY = (height - vH) / 2;
 
   drawMirroredVideo(vX, vY, vW, vH);
 
@@ -188,31 +190,28 @@ function drawKeypoints(facePrediction, faceIndex, vX, vY, vW, vH) {
   }
   handWasOverFace = handIsOverFace;
 
-  // 如果手正在臉部上方，顯示臉譜
-  if (handIsOverFace || handPredictions.length > 0) {
-    const pTop = getCanvasPoint(keypoints[10], vX, vY, vW);
-    const pBottom = getCanvasPoint(keypoints[152], vX, vY, vW);
-    const pLeft = getCanvasPoint(keypoints[234], vX, vY, vW);
-    const pRight = getCanvasPoint(keypoints[454], vX, vY, vW);
+  // --- 繪製臉譜圖片 (始終顯示) ---
+  const pTop = getCanvasPoint(keypoints[10], vX, vY, vW);
+  const pBottom = getCanvasPoint(keypoints[152], vX, vY, vW);
+  const pLeft = getCanvasPoint(keypoints[234], vX, vY, vW);
+  const pRight = getCanvasPoint(keypoints[454], vX, vY, vW);
 
-    const minX = Math.min(pLeft.x, pRight.x);
-    const maxX = Math.max(pLeft.x, pRight.x);
-    const minY = pTop.y;
-    const maxY = pBottom.y;
+  const minX = Math.min(pLeft.x, pRight.x);
+  const maxX = Math.max(pLeft.x, pRight.x);
+  const minY = pTop.y;
+  const maxY = pBottom.y;
 
-    // 3. 繪製臉譜圖片
-    const maskImg = maskImgs[currentMaskIndex];
-    if (maskImg) {
-      const padding = 20 * vScale;
-      const faceW = (maxX - minX) + padding * 2;
-      const faceH = (maxY - minY) + padding * 2;
-      
-      push();
-      const drawX = minX - padding;
-      const drawY = minY - padding;
-      image(maskImg, drawX, drawY, faceW, faceH);
-      pop();
-    }
+  const maskImg = maskImgs[currentMaskIndex];
+  if (maskImg) {
+    const padding = 20 * vScale;
+    const faceW = (maxX - minX) + padding * 2;
+    const faceH = (maxY - minY) + padding * 2;
+    
+    push();
+    const drawX = minX - padding;
+    const drawY = minY - padding;
+    image(maskImg, drawX, drawY, faceW, faceH);
+    pop();
   }
 }
 
@@ -250,7 +249,7 @@ function getCanvasPoint(point, vX, vY, vW) {
   // 1. 正規化並鏡像 X 軸
   let normX = point[0] / intrinsicVideoWidth;
   let cpX = vX + (1 - normX) * vW;
-  let cpY = vY + (point[1] / intrinsicVideoHeight) * (video.height * vScale);
+  let cpY = vY + (point[1] / intrinsicVideoHeight) * (video.height * vScale); // 使用 vScale 統一 Y 座標
 
   return { x: cpX, y: cpY };
 }
